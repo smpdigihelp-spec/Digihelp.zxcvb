@@ -1,82 +1,68 @@
-name: RDP-Ultra-Advanced-Final
+name: RDP-Final-Pro-Max
 
 on:
   workflow_dispatch:
 
 jobs:
-  rdp-session:
+  rdp-pro:
     runs-on: windows-latest
-    timeout-minutes: 3600 # GitHub ki max limit
+    timeout-minutes: 3600
 
     steps:
-      - name: 1. Windows Optimization (Super Fast RDP)
+      - name: 1. Windows Speed Optimization
         run: |
-          # Faltu visual effects band karna
+          # Performance registry tweaks
           Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))
           Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop\WindowMetrics' -Name "MinAnimate" -Value 0
-          # Power settings to High Performance
           powercfg /s 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
 
-      - name: 2. Configure User & RDP Access
+      - name: 2. Auto-Install Essential Tools (Chrome, VLC, WinRAR)
         run: |
-          $username = "RDP"
+          Write-Host "Installing software, please wait..."
+          # Chocolatey (Package Manager) use karke software install karna
+          Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+          choco install googlechrome vlc winrar -y
+
+      - name: 3. Setup Fixed User & RDP
+        run: |
           $password = "Zxcvbnm#123"
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          
-          # Enable RDP
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          
-          # Create User
-          if (Get-LocalUser -Name $username -ErrorAction SilentlyContinue) { Remove-LocalUser -Name $username }
-          New-LocalUser -Name $username -Password $securePass -AccountNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member $username
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
-          
-          # Firewall rules
-          netsh advfirewall firewall add rule name="Allow-RDP" dir=in action=allow protocol=TCP localport=3389
+          if (Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue) { Remove-LocalUser -Name "RDP" }
+          New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
+          netsh advfirewall firewall add rule name="RDP-3389" dir=in action=allow protocol=TCP localport=3389
 
-      - name: 3. Setup Tailscale (Fixed Hostname)
+      - name: 4. Setup Tailscale & Backup Folder
         run: |
+          # Install Tailscale
           Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi" -OutFile "ts.msi"
           Start-Process msiexec.exe -ArgumentList "/i", "ts.msi", "/quiet", "/norestart" -Wait
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=My-Cloud-PC --accept-routes
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=My-Cloud-PC
+          # Create Upload Folder
+          mkdir "C:\Users\RDP\Desktop\UPLOAD_HERE"
 
-      - name: 4. Create Auto-Backup Folder
-        run: |
-          $backupPath = "C:\Users\RDP\Desktop\UPLOAD_HERE"
-          if (!(Test-Path $backupPath)) { New-Item -ItemType Directory -Path $backupPath }
-          "Is folder mein jo bhi file rakhoge, 6 ghante baad uska download link mil jayega." | Out-File "$backupPath\READ_ME.txt"
-
-      - name: 5. RDP Active & Smart Auto-Backup System
+      - name: 5. Monitor Session & Auto-Upload Link Generation
         shell: pwsh
         run: |
           $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-          Write-Host "`n==============================="
-          Write-Host "PC IS READY!"
+          Write-Host "`n=== PC READY TO CONNECT ==="
           Write-Host "IP: $tsIP"
-          Write-Host "User: RDP"
-          Write-Host "Pass: Zxcvbnm#123"
-          Write-Host "===============================`n"
+          Write-Host "User: RDP | Pass: Zxcvbnm#123"
+          Write-Host "============================"
 
-          # Timer: 350 Minutes (5.8 Hours) tak wait karega
-          $limit = 21000 
-          $elapsed = 0
-          while ($elapsed -lt $limit) {
-              Write-Host "[$(Get-Date)] Status: Online. (Next status in 5 mins)"
-              Start-Sleep -Seconds 300
-              $elapsed += 300
-          }
+          # Wait for ~5.8 Hours (21000 Seconds)
+          Start-Sleep -Seconds 21000 
 
-          # --- AUTO BACKUP START (Before 6 Hours) ---
-          Write-Host "!!! TIME ENDING - STARTING AUTO-UPLOAD !!!"
-          $files = Get-ChildItem "C:\Users\RDP\Desktop\UPLOAD_HERE\*" -Exclude "READ_ME.txt"
+          Write-Host "!!! BACKUP STARTING !!!"
+          $files = Get-ChildItem "C:\Users\RDP\Desktop\UPLOAD_HERE\*"
           foreach ($file in $files) {
-              Write-Host "Uploading $($file.Name)..."
-              # Bashupload use kar rahe hain (No login required)
+              Write-Host "Generating Link for $($file.Name)..."
+              # Upload to bashupload.com and print the link in logs
               curl.exe -T "$($file.FullName)" "https://bashupload.com/$($file.Name)"
           }
           
-          # Tailscale se logout taaki dashboard clean rahe
+          # Force Logout from Tailscale to reset device list
           & "$env:ProgramFiles\Tailscale\tailscale.exe" logout
           

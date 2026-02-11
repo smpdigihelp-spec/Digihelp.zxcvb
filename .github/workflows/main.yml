@@ -1,79 +1,72 @@
-name: RDP-Final-Pro-Max
+name: RDP-Fixed-Final-Version
 
 on:
   workflow_dispatch:
 
 jobs:
-  rdp-pro:
+  rdp-session:
     runs-on: windows-latest
     timeout-minutes: 3600
 
     steps:
-      - name: 1. Windows Speed Optimization
+      - name: 1. Setup Fixed User & RDP
         run: |
-          # Performance registry tweaks for faster RDP
-          Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))
-          Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop\WindowMetrics' -Name "MinAnimate" -Value 0
-          powercfg /s 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
-
-      - name: 2. Setup FIXED RDP User
-        run: |
-          # Sab kuch yahan fix kar diya hai
+          # Fixing Username and Password exactly as requested
           $username = "RDP"
           $password = "Zxcvbnm#123"
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           
-          # Pehle se maujood user delete karna taki error na aaye
+          # Delete if exists and create fresh
           if (Get-LocalUser -Name $username -ErrorAction SilentlyContinue) { Remove-LocalUser -Name $username }
-          
           New-LocalUser -Name $username -Password $securePass -AccountNeverExpires
           Add-LocalGroupMember -Group "Administrators" -Member $username
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
           
-          # RDP Connection settings
+          # Enable RDP and Firewall
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          netsh advfirewall firewall add rule name="RDP-3389" dir=in action=allow protocol=TCP localport=3389
+          netsh advfirewall firewall add rule name="RDP-Fixed" dir=in action=allow protocol=TCP localport=3389
+          
+      - name: 2. Install VLC and WinRAR (Skipping Chrome to avoid Error)
+        run: |
+          # Chrome is already installed by default, so we only add VLC and WinRAR
+          Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+          choco install vlc winrar -y --continue-on-error
 
-      - name: 3. Setup Tailscale (Fixed Hostname)
+      - name: 3. Connect Tailscale
         run: |
           Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi" -OutFile "ts.msi"
           Start-Process msiexec.exe -ArgumentList "/i", "ts.msi", "/quiet", "/norestart" -Wait
-          # Hostname fix karne se IP stability behtar hogi
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=My-Cloud-PC
 
-      - name: 4. Auto-Install Tools (Chrome, VLC, WinRAR)
+      - name: 4. Create Desktop Upload Folder
         run: |
-          # Chocolatey se software automatic install
-          Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-          choco install googlechrome vlc winrar -y
+          mkdir "C:\Users\RDP\Desktop\UPLOAD_HERE"
+          "Put files here to get download links at the end of 6 hours." | Out-File "C:\Users\RDP\Desktop\UPLOAD_HERE\README.txt"
 
-      - name: 5. Desktop 'UPLOAD_HERE' Folder Setup
-        run: |
-          $backupPath = "C:\Users\RDP\Desktop\UPLOAD_HERE"
-          mkdir $backupPath
-          "Yahan apni files rakhein. Workflow khatam hone se pehle link mil jayega." | Out-File "$backupPath\READ_ME.txt"
-
-      - name: 6. Stay Active & Auto-Backup
+      - name: 5. RDP Active - Connection Details
         shell: pwsh
         run: |
           $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-          Write-Host "`n=== LOGIN DETAILS ==="
-          Write-Host "IP: $tsIP"
-          Write-Host "User: RDP"
-          Write-Host "Pass: Zxcvbnm#123"
-          Write-Host "=====================`n"
+          Write-Host "`n****************************************"
+          Write-Host "PC IS ONLINE! CONNECT NOW:"
+          Write-Host "Address: $tsIP"
+          Write-Host "Username: RDP"
+          Write-Host "Password: Zxcvbnm#123"
+          Write-Host "****************************************`n"
 
-          # 5.8 Hours (21000 seconds) wait karega
-          Start-Sleep -Seconds 21000 
+          # Loop to keep it running for 5.8 hours
+          $limit = 21000
+          $start = 0
+          while ($start -lt $limit) {
+              Write-Host "[$(Get-Date)] PC is running - Check Desktop for UPLOAD_HERE folder"
+              Start-Sleep -Seconds 300
+              $start += 300
+          }
 
-          Write-Host "!!! TIME ENDING - UPLOADING FILES !!!"
-          $files = Get-ChildItem "C:\Users\RDP\Desktop\UPLOAD_HERE\*" -Exclude "READ_ME.txt"
+          # Final File Upload before timeout
+          $files = Get-ChildItem "C:\Users\RDP\Desktop\UPLOAD_HERE\*" -Exclude "README.txt"
           foreach ($file in $files) {
               Write-Host "Uploading $($file.Name)..."
               curl.exe -T "$($file.FullName)" "https://bashupload.com/$($file.Name)"
           }
-          
-          # Tailscale cleanup
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" logout
           

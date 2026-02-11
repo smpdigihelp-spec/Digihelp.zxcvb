@@ -11,58 +11,69 @@ jobs:
     steps:
       - name: 1. Windows Speed Optimization
         run: |
-          # Performance registry tweaks
+          # Performance registry tweaks for faster RDP
           Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))
           Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop\WindowMetrics' -Name "MinAnimate" -Value 0
           powercfg /s 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
 
-      - name: 2. Auto-Install Essential Tools (Chrome, VLC, WinRAR)
+      - name: 2. Setup FIXED RDP User
         run: |
-          Write-Host "Installing software, please wait..."
-          # Chocolatey (Package Manager) use karke software install karna
+          # Sab kuch yahan fix kar diya hai
+          $username = "RDP"
+          $password = "Zxcvbnm#123"
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          
+          # Pehle se maujood user delete karna taki error na aaye
+          if (Get-LocalUser -Name $username -ErrorAction SilentlyContinue) { Remove-LocalUser -Name $username }
+          
+          New-LocalUser -Name $username -Password $securePass -AccountNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member $username
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
+          
+          # RDP Connection settings
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          netsh advfirewall firewall add rule name="RDP-3389" dir=in action=allow protocol=TCP localport=3389
+
+      - name: 3. Setup Tailscale (Fixed Hostname)
+        run: |
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi" -OutFile "ts.msi"
+          Start-Process msiexec.exe -ArgumentList "/i", "ts.msi", "/quiet", "/norestart" -Wait
+          # Hostname fix karne se IP stability behtar hogi
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=My-Cloud-PC
+
+      - name: 4. Auto-Install Tools (Chrome, VLC, WinRAR)
+        run: |
+          # Chocolatey se software automatic install
           Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
           choco install googlechrome vlc winrar -y
 
-      - name: 3. Setup Fixed User & RDP
+      - name: 5. Desktop 'UPLOAD_HERE' Folder Setup
         run: |
-          $password = "Zxcvbnm#123"
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          if (Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue) { Remove-LocalUser -Name "RDP" }
-          New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
-          netsh advfirewall firewall add rule name="RDP-3389" dir=in action=allow protocol=TCP localport=3389
+          $backupPath = "C:\Users\RDP\Desktop\UPLOAD_HERE"
+          mkdir $backupPath
+          "Yahan apni files rakhein. Workflow khatam hone se pehle link mil jayega." | Out-File "$backupPath\READ_ME.txt"
 
-      - name: 4. Setup Tailscale & Backup Folder
-        run: |
-          # Install Tailscale
-          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi" -OutFile "ts.msi"
-          Start-Process msiexec.exe -ArgumentList "/i", "ts.msi", "/quiet", "/norestart" -Wait
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=My-Cloud-PC
-          # Create Upload Folder
-          mkdir "C:\Users\RDP\Desktop\UPLOAD_HERE"
-
-      - name: 5. Monitor Session & Auto-Upload Link Generation
+      - name: 6. Stay Active & Auto-Backup
         shell: pwsh
         run: |
           $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-          Write-Host "`n=== PC READY TO CONNECT ==="
+          Write-Host "`n=== LOGIN DETAILS ==="
           Write-Host "IP: $tsIP"
-          Write-Host "User: RDP | Pass: Zxcvbnm#123"
-          Write-Host "============================"
+          Write-Host "User: RDP"
+          Write-Host "Pass: Zxcvbnm#123"
+          Write-Host "=====================`n"
 
-          # Wait for ~5.8 Hours (21000 Seconds)
+          # 5.8 Hours (21000 seconds) wait karega
           Start-Sleep -Seconds 21000 
 
-          Write-Host "!!! BACKUP STARTING !!!"
-          $files = Get-ChildItem "C:\Users\RDP\Desktop\UPLOAD_HERE\*"
+          Write-Host "!!! TIME ENDING - UPLOADING FILES !!!"
+          $files = Get-ChildItem "C:\Users\RDP\Desktop\UPLOAD_HERE\*" -Exclude "READ_ME.txt"
           foreach ($file in $files) {
-              Write-Host "Generating Link for $($file.Name)..."
-              # Upload to bashupload.com and print the link in logs
+              Write-Host "Uploading $($file.Name)..."
               curl.exe -T "$($file.FullName)" "https://bashupload.com/$($file.Name)"
           }
           
-          # Force Logout from Tailscale to reset device list
+          # Tailscale cleanup
           & "$env:ProgramFiles\Tailscale\tailscale.exe" logout
           

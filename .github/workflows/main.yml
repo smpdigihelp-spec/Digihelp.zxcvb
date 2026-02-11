@@ -1,66 +1,82 @@
-name: RDP-Fixed
+name: RDP-Ultra-Advanced-Final
 
 on:
   workflow_dispatch:
 
 jobs:
-  secure-rdp:
+  rdp-session:
     runs-on: windows-latest
-    timeout-minutes: 3600
+    timeout-minutes: 3600 # GitHub ki max limit
 
     steps:
-      - name: Configure Core RDP Settings
+      - name: 1. Windows Optimization (Super Fast RDP)
         run: |
-          # Remote Desktop settings ko enable karna
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          
-          # Firewall mein RDP port allow karna
-          netsh advfirewall firewall delete rule name="RDP-Tailscale"
-          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
+          # Faltu visual effects band karna
+          Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))
+          Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop\WindowMetrics' -Name "MinAnimate" -Value 0
+          # Power settings to High Performance
+          powercfg /s 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
 
-      - name: Create Fixed RDP User
+      - name: 2. Configure User & RDP Access
         run: |
           $username = "RDP"
           $password = "Zxcvbnm#123"
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           
-          # Pehle se user hai toh delete karke naya banana (error se bachne ke liye)
-          if (Get-LocalUser -Name $username -ErrorAction SilentlyContinue) {
-              Remove-LocalUser -Name $username
-          }
+          # Enable RDP
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           
+          # Create User
+          if (Get-LocalUser -Name $username -ErrorAction SilentlyContinue) { Remove-LocalUser -Name $username }
           New-LocalUser -Name $username -Password $securePass -AccountNeverExpires
           Add-LocalGroupMember -Group "Administrators" -Member $username
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
-          Write-Host "User RDP created with fixed password."
+          
+          # Firewall rules
+          netsh advfirewall firewall add rule name="Allow-RDP" dir=in action=allow protocol=TCP localport=3389
 
-      - name: Install Tailscale
+      - name: 3. Setup Tailscale (Fixed Hostname)
         run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-
-      - name: Establish Tailscale Connection
-        run: |
-          # Hostname fix kar diya taki Tailscale dashboard pe har baar same dikhe
-          # Note: Dashboard par is device ke liye 'Disable Key Expiry' zaroor on kar dena
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi" -OutFile "ts.msi"
+          Start-Process msiexec.exe -ArgumentList "/i", "ts.msi", "/quiet", "/norestart" -Wait
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=My-Cloud-PC --accept-routes
-          
-          $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
 
-      - name: Maintain Connection
+      - name: 4. Create Auto-Backup Folder
         run: |
-          Write-Host "`n=== FIXED RDP ACCESS ==="
-          Write-Host "Address: $env:TAILSCALE_IP"
-          Write-Host "Username: RDP"
-          Write-Host "Password: Zxcvbnm#123"
-          Write-Host "========================`n"
-          
-          while ($true) {
-              Write-Host "[$(Get-Date)] PC is Online - Connect using Tailscale IP"
+          $backupPath = "C:\Users\RDP\Desktop\UPLOAD_HERE"
+          if (!(Test-Path $backupPath)) { New-Item -ItemType Directory -Path $backupPath }
+          "Is folder mein jo bhi file rakhoge, 6 ghante baad uska download link mil jayega." | Out-File "$backupPath\READ_ME.txt"
+
+      - name: 5. RDP Active & Smart Auto-Backup System
+        shell: pwsh
+        run: |
+          $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          Write-Host "`n==============================="
+          Write-Host "PC IS READY!"
+          Write-Host "IP: $tsIP"
+          Write-Host "User: RDP"
+          Write-Host "Pass: Zxcvbnm#123"
+          Write-Host "===============================`n"
+
+          # Timer: 350 Minutes (5.8 Hours) tak wait karega
+          $limit = 21000 
+          $elapsed = 0
+          while ($elapsed -lt $limit) {
+              Write-Host "[$(Get-Date)] Status: Online. (Next status in 5 mins)"
               Start-Sleep -Seconds 300
+              $elapsed += 300
           }
+
+          # --- AUTO BACKUP START (Before 6 Hours) ---
+          Write-Host "!!! TIME ENDING - STARTING AUTO-UPLOAD !!!"
+          $files = Get-ChildItem "C:\Users\RDP\Desktop\UPLOAD_HERE\*" -Exclude "READ_ME.txt"
+          foreach ($file in $files) {
+              Write-Host "Uploading $($file.Name)..."
+              # Bashupload use kar rahe hain (No login required)
+              curl.exe -T "$($file.FullName)" "https://bashupload.com/$($file.Name)"
+          }
+          
+          # Tailscale se logout taaki dashboard clean rahe
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" logout
           
